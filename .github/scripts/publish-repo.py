@@ -8,12 +8,15 @@ Run it with the checked-out `repo` branch as the working directory:
 
 Inputs:  ~/apk-artifacts/**/build/outputs/apk/release/*.apk   one APK per extension
          ~/apk-artifacts/**/build/source-info.json            written by Gradle next to every APK
-Outputs: ./apk/<apk>, ./icon/<package>.png, ./index.json, ./index.min.json
-Anything else in the repo branch (README.md, repo.json, .git, ...) is left untouched.
+Outputs: ./apk/<apk>, ./icon/<package>.png, ./index.json, ./index.min.json, ./repo.json
+Anything else in the repo branch (.git, files you add by hand, ...) is left untouched.
 """
 
 import json
+import os
+import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -60,6 +63,29 @@ def index_entry(info: dict) -> dict:
     }
 
 
+def read_config() -> dict[str, str]:
+    """project.properties: simple `key=value` lines, `#` starts a comment."""
+    config = {}
+    for line in (SOURCE_DIR / "project.properties").read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            config[key.strip()] = value.strip()
+    return config
+
+
+def signing_fingerprint(apk: Path) -> str:
+    """SHA-256 of the certificate the APK is signed with."""
+    tools = sorted(Path(os.environ.get("ANDROID_HOME", "")).glob("build-tools/*/apksigner"))
+    if not tools:
+        sys.exit("apksigner not found (is ANDROID_HOME set?)")
+    out = subprocess.run([str(tools[-1]), "verify", "--print-certs", str(apk)], capture_output=True, text=True, check=True).stdout
+    match = re.search(r"certificate SHA-256 digest: ([0-9a-fA-F]{64})", out)
+    if not match:
+        sys.exit(f"Could not read the signing certificate of {apk}:\n{out}")
+    return match.group(1).lower()
+
+
 def main() -> None:
     extensions = find_extensions()
     if len(extensions) < MIN_APKS:
@@ -75,6 +101,24 @@ def main() -> None:
         shutil.copy2(apk, REPO_DIR / "apk" / info["apk"])
         shutil.copy2(SOURCE_DIR / info["icon"], REPO_DIR / "icon" / f"{info['pkg']}.png")
         index.append(index_entry(info))
+
+    config = read_config()
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    (REPO_DIR / "repo.json").write_text(
+        json.dumps(
+            {
+                "meta": {
+                    "name": config["repoName"],
+                    "shortName": config["repoShortName"],
+                    "website": f"https://github.com/{repo}",
+                    "signingKeyFingerprint": signing_fingerprint(extensions[0][1]),
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     (REPO_DIR / "index.json").write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (REPO_DIR / "index.min.json").write_text(

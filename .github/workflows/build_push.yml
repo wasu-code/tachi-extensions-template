@@ -81,12 +81,32 @@ jobs:
           ref: main
           path: main
 
+      - name: Check for repo branch
+        id: repo_branch
+        run: |
+          if git -C main ls-remote --exit-code --heads origin repo > /dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repo branch
+        if: steps.repo_branch.outputs.exists == 'true'
         uses: actions/checkout@v4
         with:
           ref: repo
           path: repo
           persist-credentials: true # Required for pushing
+
+      - name: Create orphan repo branch
+        if: steps.repo_branch.outputs.exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          mkdir repo
+          cd repo
+          git init --initial-branch=repo
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
 
       - name: Create repo
         run: |
@@ -96,13 +116,12 @@ jobs:
       - name: Deploy repo
         run: |
           cd repo
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-          git status
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add -A
           if [ -n "$(git status --porcelain)" ]; then
-              git add .
               git commit -m "Update extensions repo"
-              git push
+              git push origin HEAD:repo
           else
               echo "No changes to commit"
           fi

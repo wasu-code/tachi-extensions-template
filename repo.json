@@ -1,0 +1,8 @@
+{
+  "meta": {
+    "name": "Example Extensions",
+    "shortName": "EXT",
+    "website": "https://github.com/wasu-code/tachi-extensions-template",
+    "signingKeyFingerprint": "d7ab31837f666ccf404ee043146bb6ecc3c4f1a663041b7d64feb0556a3b19a5"
+  }
+}
